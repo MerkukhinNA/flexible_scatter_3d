@@ -4,7 +4,7 @@ class_name FlexibleScatter3D
 
 
 enum PlacementType { RANDOM, GRID }
-enum SaveProportions { DISABLE, XY, XZ, YZ, XYZ }
+enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
 
 ## The number of instances to generate.
 @export_range(0, 10000, 1) var count: int = 100:
@@ -19,6 +19,72 @@ enum SaveProportions { DISABLE, XY, XZ, YZ, XYZ }
     set(value):
         placement_type = value
         notify_property_list_changed()
+        _scatter()
+      
+## The area for placing instances. If it is not set manually, it is created automatically. [color=green]For optimization purposes[/color]: [color=white]1)[/color] if the area is a child element, then its position will be equal to the position of this object [color=white]2)[/color] if the area is not a child element, then this object will be equal to the position of the area.
+@export var csg_polygon_3d: CSGPolygon3D:
+    set(value):
+        if csg_polygon_3d and is_ancestor_of(csg_polygon_3d):
+            csg_polygon_3d.queue_free()
+            
+        csg_polygon_3d = value
+        
+        _scatter()
+  
+@export_group("General")
+
+## Offset for instance.
+@export var offset: Vector3 = Vector3.ZERO:
+    get: return offset
+    set(value):
+        offset = value
+        _scatter()
+        
+## Size for instance.
+@export var size: Vector3 = Vector3.ONE:
+    get: return size
+    set(value):
+        if size_ratio:
+            if size.x != value.x:
+                size = Vector3(value.x, value.x, value.x)
+            elif size.y != value.y:
+                size = Vector3(value.y, value.y, value.y)
+            elif size.z != value.z:
+                size = Vector3(value.z, value.z, value.z)
+        else:
+            size = value
+        _scatter()
+        
+## Keep the the same size for all axes.
+@export var size_ratio: bool = true:
+    get: return size_ratio
+    set(value):
+        size_ratio = value
+        
+        if value:
+            size = Vector3(size.x, size.x, size.x)
+            
+        _scatter()
+        
+## Rotate the instance along the surface normal.
+@export var rotation_to_normal: bool = false:
+    get: return rotation_to_normal
+    set(value):
+        rotation_to_normal = value
+        _scatter()
+        
+## [color=orange]true[/color] - instances that do not fall into polygon [color=white]Depth[/color] will not be generated.
+@export var generate_only_by_depth: bool = false:
+    get: return generate_only_by_depth
+    set(value):
+        generate_only_by_depth = value
+        _scatter()
+        
+## The physics collision mask that the instances should collide with.
+@export_flags_3d_physics var collision_mask: int = 0x1:
+    get: return collision_mask
+    set(value):
+        collision_mask = value
         _scatter()
         
 @export_group("Grid")
@@ -54,29 +120,6 @@ enum SaveProportions { DISABLE, XY, XZ, YZ, XYZ }
         )
         _scatter()
 
-@export_group("General")
-
-## Rotate the instance along the surface normal.
-@export var rotation_to_normal: bool = false:
-    get: return rotation_to_normal
-    set(value):
-        rotation_to_normal = value
-        _scatter()
-        
-## [color=orange]true[/color] - instances that do not fall into polygon [color=white]Depth[/color] will not be generated.
-@export var generate_only_by_depth: bool = false:
-    get: return generate_only_by_depth
-    set(value):
-        generate_only_by_depth = value
-        _scatter()
-        
-## The physics collision mask that the instances should collide with.
-@export_flags_3d_physics var collision_mask: int = 0x1:
-    get: return collision_mask
-    set(value):
-        collision_mask = value
-        _scatter()
-        
 @export_group("Random")
 
 ## A seed to feed for the random number generator.
@@ -94,11 +137,11 @@ enum SaveProportions { DISABLE, XY, XZ, YZ, XYZ }
         use_transformation = value
         _scatter()
         
-## Link the size vactor to preserve the proportions of the instance.
-@export_enum("Disable", "XY", "XZ", "YZ", "XYZ") var save_proportions: int = SaveProportions.DISABLE:
-    get: return save_proportions
+## If [color=orange]true[/color] then the average values of the selected vectors will be used to preserve the proportions of the instance.
+@export_enum("Disable", "XY", "XZ", "YZ", "XYZ") var keep_proportions: int = KeepProportions.XYZ:
+    get: return keep_proportions
     set(value):
-        save_proportions = value
+        keep_proportions = value
         _scatter()
         
 ## The minimum random size for each instance.
@@ -138,11 +181,6 @@ enum SaveProportions { DISABLE, XY, XZ, YZ, XYZ }
         debug_print = value
         _scatter()
         
-var csg_polygon_3d: CSGPolygon3D:
-    set(value):
-        csg_polygon_3d = value
-        _scatter()
-
 @onready var _space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 var _polygon: PackedVector2Array
 var _depth: float
@@ -211,7 +249,7 @@ func _create_csg_polygon() -> void:
     
     csg_polygon_3d.owner = get_tree().edited_scene_root if Engine.is_editor_hint() else self
     update_configuration_warnings()
-        
+
 func _create_default_mesh() -> void:
     if multimesh.mesh:
         return
@@ -226,11 +264,16 @@ func _ensure_correctness() -> void:
     
     if rotation_degrees != Vector3.ZERO:
         rotation_degrees = Vector3.ZERO
-        
-    csg_polygon_3d.position = Vector3.ZERO
-    csg_polygon_3d.rotation_degrees = Vector3(-90, 0, 0)
-    csg_polygon_3d.scale = Vector3.ONE
     
+    if is_ancestor_of(csg_polygon_3d):
+        if csg_polygon_3d.position != Vector3.ZERO:
+            csg_polygon_3d.position = Vector3.ZERO
+            csg_polygon_3d.rotation_degrees = Vector3(-90, 0, 0)
+            csg_polygon_3d.scale = Vector3.ONE
+    else:
+        if position != csg_polygon_3d.global_position:
+            position = csg_polygon_3d.global_position
+        
     if not csg_polygon_3d.get_parent():
         csg_polygon_3d.queue_free()
             
@@ -353,27 +396,27 @@ func _random_point_in_triangle(v1: Vector2, v2: Vector2, v3: Vector2) -> Vector2
 
 func _apply_random(t: Transform3D, origin: Vector3) -> Transform3D:
     if use_transformation:
-        var size_x: float = _rng.randf_range(min_random_size.x, max_random_size.x)
-        var size_y: float = _rng.randf_range(min_random_size.y, max_random_size.y)
-        var size_z: float = _rng.randf_range(min_random_size.z, max_random_size.z)
+        var size_x: float = size.x * _rng.randf_range(min_random_size.x, max_random_size.x)
+        var size_y: float = size.y * _rng.randf_range(min_random_size.y, max_random_size.y)
+        var size_z: float = size.z * _rng.randf_range(min_random_size.z, max_random_size.z)
         
-        match save_proportions:
-            SaveProportions.XY:
+        match keep_proportions:
+            KeepProportions.XY:
                 var average: float = (size_x + size_y) / 2.0
                 size_x = average
                 size_y = average
                 
-            SaveProportions.XZ:
+            KeepProportions.XZ:
                 var average: float = (size_x + size_z) / 2.0
                 size_x = average
                 size_z = average
                 
-            SaveProportions.YZ:
+            KeepProportions.YZ:
                 var average: float = (size_y + size_z) / 2.0
                 size_y = average
                 size_z = average
                 
-            SaveProportions.XYZ:
+            KeepProportions.XYZ:
                 var average: float = (size_x + size_y + size_z) / 3.0
                 size_x = average
                 size_y = average
@@ -400,9 +443,8 @@ func _generate_instance(points: Array[Vector2]) -> void:
         var start_v3: Vector3 = Vector3(points[i].x, 0, points[i].y)
         var end_v3: Vector3 = start_v3 + Vector3(0, -csg_polygon_3d.depth, 0)
         
-        # A separate, very convenient addon - DebugDraw3D
-        #if debug_draw:
-            #DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
+        if debug_draw:
+            DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
         
         if debug_print:
             print()
@@ -436,7 +478,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
                     t = t.looking_at(t.origin + hit.normal, Vector3.UP, true)
                     t = t.rotated_local(Vector3.RIGHT, deg_to_rad(90))
 
-            t = _apply_random(t, hit.position - global_position)
+            t = _apply_random(t, (hit.position - global_position) + offset)
             
         else:
             if generate_only_by_depth:
@@ -448,13 +490,16 @@ func _generate_instance(points: Array[Vector2]) -> void:
             )
             t = _apply_random(
                 t, 
-                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position
+                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + offset
             )
                     
         multimesh.set_instance_transform(i, t)
 
 func _scatter() -> void:
     if not Engine.is_editor_hint():
+        return
+    
+    if not csg_polygon_3d:
         return
         
     _polygon = csg_polygon_3d.polygon
@@ -464,6 +509,8 @@ func _scatter() -> void:
         return
         
     _create_default_mesh()
+    
+    print(name,' scatter - ', multimesh.mesh.resource_name)
     
     _rng.state = 0
     _rng.seed = random_seed
