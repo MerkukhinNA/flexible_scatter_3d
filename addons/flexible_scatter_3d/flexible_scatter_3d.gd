@@ -457,7 +457,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
             print('obj global position: ', global_position)
             print('start v3 local: ', start_v3)
             print('start v3 global: ', to_global(start_v3))
-            
+       
         var ray: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
             to_global(start_v3), 
             to_global(end_v3), 
@@ -465,7 +465,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
         )
         var hit: Dictionary = _space.intersect_ray(ray)
         var t: Transform3D
-        var xxx: Vector3 = offset + Vector3(_rng.randf_range(-grid_displace, grid_displace), 0, _rng.randf_range(-grid_displace, grid_displace))
+        var t_offset: Vector3 = offset + (Vector3(_rng.randf_range(-grid_displace, grid_displace), 0, _rng.randf_range(-grid_displace, grid_displace)) if placement_type == PlacementType.GRID else Vector3.ZERO)
         
         if debug_print:
             print('hit: ', hit)
@@ -484,8 +484,8 @@ func _generate_instance(points: Array[Vector2]) -> void:
                 if abs(-hit.normal.dot(Vector3.UP)) < 0.9999:  # Не коллинеарны
                     t = t.looking_at(t.origin + hit.normal, Vector3.UP, true)
                     t = t.rotated_local(Vector3.RIGHT, deg_to_rad(90))
-            #grid_displace
-            t = _apply_random(t, (hit.position - global_position) + xxx)
+            
+            t = _apply_random(t, (hit.position - global_position) + t_offset)
             
         else:
             if generate_only_by_depth:
@@ -497,7 +497,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
             )
             t = _apply_random(
                 t, 
-                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + xxx
+                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + t_offset
             )
                     
         multimesh.set_instance_transform(i, t)
