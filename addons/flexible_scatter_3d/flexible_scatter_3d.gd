@@ -21,7 +21,7 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         notify_property_list_changed()
         _scatter()
       
-## The area for placing instances. If it is not set manually, it is created automatically. [color=green]For optimization purposes[/color]: [color=white]1)[/color] if the area is a child element, then its position will be equal to the position of this object [color=white]2)[/color] if the area is not a child element, then this object will be equal to the position of the area.
+## The area for placing instances. If it is not set manually, it is created automatically. [color=green]For optimization purposes[/color]: if an external area is assigned, the parent for this object will be changed.
 @export var csg_polygon_3d: CSGPolygon3D:
     set(value):
         if csg_polygon_3d and is_ancestor_of(csg_polygon_3d):
@@ -96,6 +96,23 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         grid_step = value
         _scatter()
         
+## Random displacement of an instance along the X and Z axes.
+@export var grid_displace: float = 0:
+    get: return grid_displace
+    set(value):
+        grid_displace = value
+        _scatter()
+    
+## Offset for the instance.
+@export var grid_offset: Vector2 = Vector2.ZERO:
+    get: return grid_offset
+    set(value):
+        grid_offset = Vector2(
+            clamp(value.x, -grid_step / 2, grid_step / 2),
+            clamp(value.y, -grid_step /2 , grid_step / 2)
+        )
+        _scatter()
+     
 ## Row number for offset.
 @export var row_x: int = 2:
     get: return row_x
@@ -109,17 +126,7 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
     set(value):
         row_y = clampi(value, 2, 0xff)
         _scatter()
-        
-## Offset for the instance.
-@export var grid_offset: Vector2 = Vector2.ZERO:
-    get: return grid_offset
-    set(value):
-        grid_offset = Vector2(
-            clamp(value.x, -grid_step / 2, grid_step / 2),
-            clamp(value.y, -grid_step /2 , grid_step / 2)
-        )
-        _scatter()
-
+       
 @export_group("Random")
 
 ## A seed to feed for the random number generator.
@@ -130,13 +137,6 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         _rng.seed = value
         _scatter()
 
-## Applying random parameters to an instance.
-@export var use_transformation: bool = true:
-    get: return use_transformation
-    set(value):
-        use_transformation = value
-        _scatter()
-        
 ## If [color=orange]true[/color] then the average values of the selected vectors will be used to preserve the proportions of the instance.
 @export_enum("Disable", "XY", "XZ", "YZ", "XYZ") var keep_proportions: int = KeepProportions.XYZ:
     get: return keep_proportions
@@ -241,7 +241,7 @@ func _create_csg_polygon() -> void:
         Vector2(-20, -20), Vector2(20, -20),
         Vector2(20, 20), Vector2(-20, 20)
     ])
-    csg_polygon_3d.depth = 20
+    csg_polygon_3d.depth = 50
     csg_polygon_3d.layers = 0
     csg_polygon_3d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     csg_polygon_3d.mode = CSGPolygon3D.MODE_DEPTH
@@ -268,11 +268,18 @@ func _ensure_correctness() -> void:
     if is_ancestor_of(csg_polygon_3d):
         if csg_polygon_3d.position != Vector3.ZERO:
             csg_polygon_3d.position = Vector3.ZERO
+        if csg_polygon_3d.rotation_degrees != Vector3(-90, 0, 0):
             csg_polygon_3d.rotation_degrees = Vector3(-90, 0, 0)
+        if csg_polygon_3d.scale != Vector3.ONE:
             csg_polygon_3d.scale = Vector3.ONE
     else:
-        if position != csg_polygon_3d.global_position:
-            position = csg_polygon_3d.global_position
+        var other_parent = csg_polygon_3d.get_parent()
+        
+        if not other_parent.is_ancestor_of(self):
+            self.reparent(other_parent)
+            
+        if position != Vector3.ZERO:
+            position = Vector3.ZERO
         
     if not csg_polygon_3d.get_parent():
         csg_polygon_3d.queue_free()
@@ -395,47 +402,46 @@ func _random_point_in_triangle(v1: Vector2, v2: Vector2, v3: Vector2) -> Vector2
     return v1 + r1 * (v2 - v1) + r2 * (v3 - v1)
 
 func _apply_random(t: Transform3D, origin: Vector3) -> Transform3D:
-    if use_transformation:
-        var size_x: float = size.x * _rng.randf_range(min_random_size.x, max_random_size.x)
-        var size_y: float = size.y * _rng.randf_range(min_random_size.y, max_random_size.y)
-        var size_z: float = size.z * _rng.randf_range(min_random_size.z, max_random_size.z)
-        
-        match keep_proportions:
-            KeepProportions.XY:
-                var average: float = (size_x + size_y) / 2.0
-                size_x = average
-                size_y = average
-                
-            KeepProportions.XZ:
-                var average: float = (size_x + size_z) / 2.0
-                size_x = average
-                size_z = average
-                
-            KeepProportions.YZ:
-                var average: float = (size_y + size_z) / 2.0
-                size_y = average
-                size_z = average
-                
-            KeepProportions.XYZ:
-                var average: float = (size_x + size_y + size_z) / 3.0
-                size_x = average
-                size_y = average
-                size_z = average
-        
-        t = t\
-            .rotated_local(
-                Vector3.RIGHT,
-                deg_to_rad(_rng.randf_range(-random_rotation.x, random_rotation.x)))\
-            .rotated_local(
-                Vector3.UP, 
-                deg_to_rad(_rng.randf_range(-random_rotation.y, random_rotation.y)))\
-            .rotated_local(
-                Vector3.FORWARD, 
-                deg_to_rad(_rng.randf_range(-random_rotation.z, random_rotation.z)))\
-            .scaled_local(Vector3(size_x, size_y, size_z))
-        
-        t.origin = origin
-        
+    var size_x: float = size.x * _rng.randf_range(min_random_size.x, max_random_size.x)
+    var size_y: float = size.y * _rng.randf_range(min_random_size.y, max_random_size.y)
+    var size_z: float = size.z * _rng.randf_range(min_random_size.z, max_random_size.z)
+    
+    match keep_proportions:
+        KeepProportions.XY:
+            var average: float = (size_x + size_y) / 2.0
+            size_x = average
+            size_y = average
+            
+        KeepProportions.XZ:
+            var average: float = (size_x + size_z) / 2.0
+            size_x = average
+            size_z = average
+            
+        KeepProportions.YZ:
+            var average: float = (size_y + size_z) / 2.0
+            size_y = average
+            size_z = average
+            
+        KeepProportions.XYZ:
+            var average: float = (size_x + size_y + size_z) / 3.0
+            size_x = average
+            size_y = average
+            size_z = average
+    
+    t = t\
+        .rotated_local(
+            Vector3.RIGHT,
+            deg_to_rad(_rng.randf_range(-random_rotation.x, random_rotation.x)))\
+        .rotated_local(
+            Vector3.UP, 
+            deg_to_rad(_rng.randf_range(-random_rotation.y, random_rotation.y)))\
+        .rotated_local(
+            Vector3.FORWARD, 
+            deg_to_rad(_rng.randf_range(-random_rotation.z, random_rotation.z)))\
+        .scaled_local(Vector3(size_x, size_y, size_z))
+    
+    t.origin = origin
+    
     return t
 
 func _generate_instance(points: Array[Vector2]) -> void:
@@ -443,15 +449,15 @@ func _generate_instance(points: Array[Vector2]) -> void:
         var start_v3: Vector3 = Vector3(points[i].x, 0, points[i].y)
         var end_v3: Vector3 = start_v3 + Vector3(0, -csg_polygon_3d.depth, 0)
         
-        if debug_draw:
-            DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
+        #if debug_draw:
+            #DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
         
         if debug_print:
             print()
             print('obj global position: ', global_position)
             print('start v3 local: ', start_v3)
             print('start v3 global: ', to_global(start_v3))
-            
+       
         var ray: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
             to_global(start_v3), 
             to_global(end_v3), 
@@ -459,6 +465,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
         )
         var hit: Dictionary = _space.intersect_ray(ray)
         var t: Transform3D
+        var t_offset: Vector3 = offset + (Vector3(_rng.randf_range(-grid_displace, grid_displace), 0, _rng.randf_range(-grid_displace, grid_displace)) if placement_type == PlacementType.GRID else Vector3.ZERO)
         
         if debug_print:
             print('hit: ', hit)
@@ -477,8 +484,8 @@ func _generate_instance(points: Array[Vector2]) -> void:
                 if abs(-hit.normal.dot(Vector3.UP)) < 0.9999:  # Не коллинеарны
                     t = t.looking_at(t.origin + hit.normal, Vector3.UP, true)
                     t = t.rotated_local(Vector3.RIGHT, deg_to_rad(90))
-
-            t = _apply_random(t, (hit.position - global_position) + offset)
+            
+            t = _apply_random(t, (hit.position - global_position) + t_offset)
             
         else:
             if generate_only_by_depth:
@@ -490,16 +497,13 @@ func _generate_instance(points: Array[Vector2]) -> void:
             )
             t = _apply_random(
                 t, 
-                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + offset
+                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + t_offset
             )
                     
         multimesh.set_instance_transform(i, t)
 
 func _scatter() -> void:
-    if not Engine.is_editor_hint():
-        return
-    
-    if not csg_polygon_3d:
+    if not Engine.is_editor_hint() or not csg_polygon_3d or !_space:
         return
         
     _polygon = csg_polygon_3d.polygon
