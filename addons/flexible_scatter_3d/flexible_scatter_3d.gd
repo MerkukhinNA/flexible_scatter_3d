@@ -89,6 +89,13 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         
 @export_group("Grid")
 
+## Keep max count for instance.
+@export var keep_max_count: bool = true:
+    get: return keep_max_count
+    set(value):
+        keep_max_count = value
+        _scatter()
+        
 ## The distance between the instance.
 @export var grid_step: float = 5:
     get: return grid_step
@@ -137,7 +144,7 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         _rng.seed = value
         _scatter()
 
-## If [color=orange]true[/color] then the average values of the selected vectors will be used to preserve the proportions of the instance.
+## The average values of the selected vectors will be used to preserve the proportions of the instance.
 @export_enum("Disable", "XY", "XZ", "YZ", "XYZ") var keep_proportions: int = KeepProportions.XYZ:
     get: return keep_proportions
     set(value):
@@ -195,8 +202,10 @@ func _init() -> void:
         
 func _ready() -> void:
     if Engine.is_editor_hint():
+        multimesh = multimesh.duplicate()
+    
         _create_csg_polygon()
-        _ensure_correctness()
+        _ensure_default()
         _scatter()
         
         var timer: Timer = Timer.new()
@@ -209,6 +218,7 @@ func _ready() -> void:
     else:
         for child: Node in get_children():
             child.queue_free()
+            
         self.set_script(null)
 
 func _notification(what: int) -> void:
@@ -220,7 +230,7 @@ func _notification(what: int) -> void:
 
 func _validate_property(property: Dictionary) -> void:
     match property.name:
-        'grid_offset', 'grid_step', 'row_x', 'row_y':
+        'keep_max_count', 'grid_step', 'grid_displace', 'grid_offset',  'row_x', 'row_y':
             match placement_type:
                 PlacementType.RANDOM:
                     property.usage = PROPERTY_USAGE_NO_EDITOR
@@ -258,12 +268,18 @@ func _create_default_mesh() -> void:
     box_mesh.size = Vector3(1, 1, 1)
     multimesh.mesh = box_mesh
 
-func _ensure_correctness() -> void:
-    if not csg_polygon_3d:
-        return
-    
+func _ensure_default() -> void:
     if rotation_degrees != Vector3.ZERO:
         rotation_degrees = Vector3.ZERO
+    
+    if not csg_polygon_3d:
+        return
+        
+    var csg_polygon_3d_parent: Node3D = csg_polygon_3d.get_parent()
+    
+    if not csg_polygon_3d_parent:
+        csg_polygon_3d.queue_free()
+        return
     
     if is_ancestor_of(csg_polygon_3d):
         if csg_polygon_3d.position != Vector3.ZERO:
@@ -272,22 +288,18 @@ func _ensure_correctness() -> void:
             csg_polygon_3d.rotation_degrees = Vector3(-90, 0, 0)
         if csg_polygon_3d.scale != Vector3.ONE:
             csg_polygon_3d.scale = Vector3.ONE
+            
     else:
-        var other_parent = csg_polygon_3d.get_parent()
-        
-        if not other_parent.is_ancestor_of(self):
-            self.reparent(other_parent)
+        if not csg_polygon_3d_parent.is_ancestor_of(self):
+            self.reparent(csg_polygon_3d_parent)
             
         if position != Vector3.ZERO:
             position = Vector3.ZERO
-        
-    if not csg_polygon_3d.get_parent():
-        csg_polygon_3d.queue_free()
-            
+    
 func _custom_process() -> void:
     #print('custom_process')
     _create_csg_polygon()
-    _ensure_correctness()
+    _ensure_default()
     
     if _polygon != csg_polygon_3d.polygon or _depth != csg_polygon_3d.depth:
         _scatter()
@@ -373,18 +385,22 @@ func _get_grid_points_in_polygon() -> Array[Vector2]:
             var point: Vector2 = Vector2(x + x_offset, y + y_offset)
             
             if Geometry2D.is_point_in_polygon(point, _polygon):
-                grid_points.append(point * Vector2(1, -1))
+                grid_points.append((point * Vector2(1, -1)) + Vector2(_rng.randf_range(-grid_displace, grid_displace), _rng.randf_range(-grid_displace, grid_displace)))
             
             x += grid_step
             col += 1
             
         y += grid_step
         row += 1
-        
-    if count > grid_points.size():
-        count = grid_points.size()
-    else:
-        grid_points.resize(count)
+    
+    if keep_max_count:
+        if count != grid_points.size():
+            count = grid_points.size()
+    else:  
+        if count > grid_points.size():
+            count = grid_points.size()
+        else:
+            grid_points.resize(count)
     
     return grid_points
 
@@ -440,7 +456,7 @@ func _apply_random(t: Transform3D, origin: Vector3) -> Transform3D:
             deg_to_rad(_rng.randf_range(-random_rotation.z, random_rotation.z)))\
         .scaled_local(Vector3(size_x, size_y, size_z))
     
-    t.origin = origin
+    t.origin = origin + offset
     
     return t
 
@@ -449,8 +465,8 @@ func _generate_instance(points: Array[Vector2]) -> void:
         var start_v3: Vector3 = Vector3(points[i].x, 0, points[i].y)
         var end_v3: Vector3 = start_v3 + Vector3(0, -csg_polygon_3d.depth, 0)
         
-        #if debug_draw:
-            #DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
+        if debug_draw:
+            DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
         
         if debug_print:
             print()
@@ -465,7 +481,6 @@ func _generate_instance(points: Array[Vector2]) -> void:
         )
         var hit: Dictionary = _space.intersect_ray(ray)
         var t: Transform3D
-        var t_offset: Vector3 = offset + (Vector3(_rng.randf_range(-grid_displace, grid_displace), 0, _rng.randf_range(-grid_displace, grid_displace)) if placement_type == PlacementType.GRID else Vector3.ZERO)
         
         if debug_print:
             print('hit: ', hit)
@@ -485,7 +500,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
                     t = t.looking_at(t.origin + hit.normal, Vector3.UP, true)
                     t = t.rotated_local(Vector3.RIGHT, deg_to_rad(90))
             
-            t = _apply_random(t, (hit.position - global_position) + t_offset)
+            t = _apply_random(t, (hit.position - global_position))
             
         else:
             if generate_only_by_depth:
@@ -497,7 +512,7 @@ func _generate_instance(points: Array[Vector2]) -> void:
             )
             t = _apply_random(
                 t, 
-                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position + t_offset
+                to_global(Vector3(points[i].x, 0, points[i].y)) - global_position
             )
                     
         multimesh.set_instance_transform(i, t)
