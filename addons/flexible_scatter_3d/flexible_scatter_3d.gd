@@ -81,7 +81,7 @@ enum KeepProportions { DISABLE, XY, XZ, YZ, XYZ }
         _scatter()
         
 ## The physics collision mask that the instances should collide with.
-@export_flags_3d_physics var collision_mask: int = 0x1:
+@export_flags_3d_physics var collision_mask: int = 0x8000:
     get: return collision_mask
     set(value):
         collision_mask = value
@@ -217,7 +217,8 @@ func _ready() -> void:
         
     else:
         for child: Node in get_children():
-            child.queue_free()
+            if child is CSGPolygon3D or child is Timer:
+                child.queue_free()
             
         self.set_script(null)
 
@@ -465,8 +466,9 @@ func _generate_instance(points: Array[Vector2]) -> void:
         var start_v3: Vector3 = Vector3(points[i].x, 0, points[i].y)
         var end_v3: Vector3 = start_v3 + Vector3(0, -csg_polygon_3d.depth, 0)
         
-        if debug_draw:
-            DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
+        # Другой полезный аддон
+        #if debug_draw:
+            #DebugDraw3D.draw_line(to_global(start_v3), to_global(end_v3), Color.RED, 5)
         
         if debug_print:
             print()
@@ -529,7 +531,7 @@ func _scatter() -> void:
         
     _create_default_mesh()
     
-    print(name,' scatter - ', multimesh.mesh.resource_name)
+    #print(name,' scatter - ', multimesh.mesh.resource_name)
     
     _rng.state = 0
     _rng.seed = random_seed
