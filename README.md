@@ -1,6 +1,6 @@
 Аддон для Godot
 
-Позволять гибко размешать MultiMesh3D обьекты
+Позволяет гибко размешать MultiMesh3D обьекты
  
 Гайд за 5 минут - https://www.youtube.com/watch?v=bS1Xmss6zlA
 
